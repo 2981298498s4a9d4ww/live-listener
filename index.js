@@ -1,59 +1,43 @@
-const express = require("express");
-const fetch = require("node-fetch");
-const cors = require("cors");
+import express from "express";
+import fetch from "node-fetch";
+import cors from "cors";
 
 const app = express();
 app.use(cors());
+app.use(express.json());
+
+// Example OpenMHz system (Chicago CPD)
+const SYSTEMS = {
+  chi_cpd: "https://openmhz.com/system/chi_cpd/live.m3u8"
+};
 
 app.get("/", (req, res) => {
-  res.send("OpenMHz Radio Backend running");
+  res.send("OpenMHz Proxy running");
 });
 
-/*
-  Usage:
-  /radio?system=chi_cpd
-*/
-
-app.get("/radio", async (req, res) => {
-  const { system } = req.query;
-
-  if (!system) {
-    return res.status(400).send("Missing system parameter");
-  }
-
-  // OpenMHz live stream endpoint
-  const streamUrl = `https://openmhz.com/system/${system}/live`;
+// Proxy endpoint for HLS stream
+app.get("/stream/:system", async (req, res) => {
+  const system = req.params.system;
+  const url = SYSTEMS[system];
+  if (!url) return res.status(404).send("System not found");
 
   try {
-    const response = await fetch(streamUrl, {
+    const response = await fetch(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0"
+        "User-Agent": "Mozilla/5.0",
+        "Referer": "https://openmhz.com"
       }
     });
 
-    if (!response.ok || !response.body) {
-      return res.status(502).send("Stream not available");
-    }
+    if (!response.ok) return res.status(502).send("Stream not reachable");
 
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-
-    // Pipe audio directly (ZERO buffering)
+    res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
     response.body.pipe(res);
-
-    // Cleanup if user disconnects
-    req.on("close", () => {
-      response.body.destroy();
-    });
-
   } catch (err) {
     console.error(err);
-    res.status(500).send("Backend error");
+    res.status(500).send("Stream offline");
   }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("Server running on port", PORT);
-});
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
